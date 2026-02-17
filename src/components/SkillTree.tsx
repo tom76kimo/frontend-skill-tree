@@ -161,6 +161,7 @@ export default function SkillTree() {
         g: PIXI.Graphics;
         label: PIXI.Text;
         domainColor: number;
+        r: number;
       }> = [];
 
       const makeNode = (skill: SkillNode & { x: number; y: number }) => {
@@ -168,8 +169,9 @@ export default function SkillTree() {
         const domainColor = domain?.color ?? TOKENS.color.magic.secondary;
 
         const c = new PIXI.Container();
-        c.x = skill.x;
-        c.y = skill.y;
+        // 安全起見避免 NaN/undefined 造成全部堆到 (0,0)
+        c.x = Number.isFinite(skill.x) ? skill.x : 0;
+        c.y = Number.isFinite(skill.y) ? skill.y : 0;
 
         const g = new PIXI.Graphics();
 
@@ -190,6 +192,10 @@ export default function SkillTree() {
         c.cursor = "pointer";
         c.hitArea = new PIXI.Circle(0, 0, r + TOKENS.size.node.hitPad);
 
+        // place label relative to node NOW (do not wait for refresh)
+        label.x = 0;
+        label.y = r + 10;
+
         c.on("pointertap", () => {
           const current = progress[skill.id] ?? "todo";
           setSelected({ skill, status: current });
@@ -204,17 +210,15 @@ export default function SkillTree() {
         c.addChild(g);
         c.addChild(label);
         nodesLayer.addChild(c);
-        nodeSprites.push({ skill, c, g, label, domainColor });
+        nodeSprites.push({ skill, c, g, label, domainColor, r });
       };
 
       for (const s of positioned) makeNode(s);
 
       const refresh = (tMs: number) => {
-        for (const { skill, g, label, domainColor } of nodeSprites) {
+        for (const { skill, g, label, domainColor, r } of nodeSprites) {
           const st = progress[skill.id] ?? "todo";
           const locked = skill.prereq.some((id) => (progress[id] ?? "todo") !== "done");
-
-          const r = skill.level === 1 ? TOKENS.size.node.r1 : skill.level === 2 ? TOKENS.size.node.r2 : TOKENS.size.node.r3;
 
           // border color: per-domain by default; override for locked/done
           const border =
@@ -226,9 +230,7 @@ export default function SkillTree() {
 
           const fill = locked && st !== "done" ? 0x0b1220 : 0x0f172a;
 
-          // label placement + dim when locked
-          label.x = 0;
-          label.y = r + 10;
+          // label dim when locked
           label.alpha = locked && st !== "done" ? 0.45 : 0.95;
 
           g.clear();
