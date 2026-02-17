@@ -4,10 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as PIXI from "pixi.js";
 import { Viewport } from "pixi-viewport";
 
-import styles from "./SkillTree.module.css";
 import { SKILL_TREE } from "@/lib/skillTreeData";
-import { layoutBottomUp } from "@/lib/layout";
-import { TOKENS } from "@/lib/tokens";
 import { cycleStatus, loadProgress, saveProgress, type ProgressMap } from "@/lib/progress";
 import type { SkillNode, SkillStatus } from "@/lib/types";
 
@@ -27,16 +24,6 @@ export default function SkillTree() {
 
   const [progress, setProgress] = useState<ProgressMap>({});
   const [selected, setSelected] = useState<Selected>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  // mobile-friendly mode: Journey (show only nearby nodes) vs Map (show all)
-  const [journeyMode, setJourneyMode] = useState(false);
-  const [focusY, setFocusY] = useState<number | null>(null);
-
-  const selectedIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    selectedIdRef.current = selected?.skill.id ?? null;
-  }, [selected]);
 
   const domainById = useMemo(() => {
     const m = new Map(SKILL_TREE.domains.map((d) => [d.id, d] as const));
@@ -48,18 +35,8 @@ export default function SkillTree() {
   }, []);
 
   useEffect(() => {
-    // default Journey on mobile
-    if (typeof window === "undefined") return;
-    const isMobile = window.matchMedia("(max-width: 820px)").matches;
-    if (isMobile) setJourneyMode(true);
-  }, []);
-
-  useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-
-    // more vertical space to avoid label overlap
-    const { positioned, worldWidth, worldHeight } = layoutBottomUp(SKILL_TREE.skills, { worldHeight: 1800 });
 
     // 避免 dev hot reload 疊加 multiple canvases
     el.innerHTML = "";
@@ -71,8 +48,8 @@ export default function SkillTree() {
       await app.init({
         width: el.clientWidth,
         height: el.clientHeight,
-        background: `#${TOKENS.color.bg.base.toString(16).padStart(6, "0")}`,
-        antialias: true,
+        background: "#0b1020",
+        antialias: false,
         resolution: window.devicePixelRatio || 1,
         autoDensity: true
       });
@@ -82,11 +59,9 @@ export default function SkillTree() {
       const viewport = new Viewport({
         screenWidth: el.clientWidth,
         screenHeight: el.clientHeight,
-        worldWidth,
-        worldHeight,
-        events: app.renderer.events,
-        // mobile: 不要讓 viewport 在邊界卡住
-        passiveWheel: false
+        worldWidth: 1400,
+        worldHeight: 900,
+        events: app.renderer.events
       });
 
       viewportRef.current = viewport;
@@ -94,136 +69,68 @@ export default function SkillTree() {
 
       viewport.drag().pinch().wheel().decelerate();
 
-      // --- Background layers (Style B: readable RPG UI) ---
-      const bg = new PIXI.Container();
-      viewport.addChild(bg);
-
-      const base = new PIXI.Graphics();
-      base.rect(0, 0, worldWidth, worldHeight).fill({ color: TOKENS.color.bg.base });
-      bg.addChild(base);
-
-      // soft fog blobs
-      const fog = new PIXI.Graphics();
-      for (let i = 0; i < 12; i++) {
-        fog.circle((i / 12) * worldWidth + 60, worldHeight * 0.3 + (i % 4) * 26, 220 + (i % 5) * 24)
-          .fill({ color: TOKENS.color.bg.fog, alpha: 0.06 });
+      // pixel-ish grid background
+      const grid = new PIXI.Graphics();
+      grid.rect(0, 0, 1400, 900).fill({ color: 0x0b1020 });
+      const step = 40;
+      for (let x = 0; x <= 1400; x += step) {
+        grid.moveTo(x, 0).lineTo(x, 900);
       }
-      bg.addChild(fog);
-
-      // vignette
-      const vignette = new PIXI.Graphics();
-      vignette.rect(0, 0, worldWidth, worldHeight).fill({ color: TOKENS.color.bg.vignette, alpha: 0.22 });
-      vignette.alpha = 0.35;
-      bg.addChild(vignette);
-
-      // particles
-      const particles = new PIXI.Container();
-      bg.addChild(particles);
-      const sparkles: Array<{ g: PIXI.Graphics; vx: number; vy: number }> = [];
-      for (let i = 0; i < 34; i++) {
-        const p = new PIXI.Graphics();
-        p.circle(0, 0, 1 + (i % 2)).fill({ color: TOKENS.color.magic.primary, alpha: 0.18 });
-        p.x = Math.random() * worldWidth;
-        p.y = Math.random() * worldHeight;
-        particles.addChild(p);
-        sparkles.push({ g: p, vx: (Math.random() - 0.5) * 0.10, vy: -0.04 - Math.random() * 0.07 });
+      for (let y = 0; y <= 900; y += step) {
+        grid.moveTo(0, y).lineTo(1400, y);
       }
+      grid.stroke({ width: 1, color: 0x101a33, alpha: 1 });
+      viewport.addChild(grid);
 
-      // Layers for branches/nodes
-      const edgesLayer = new PIXI.Container();
-      viewport.addChild(edgesLayer);
+      const edges = new PIXI.Graphics();
+      viewport.addChild(edges);
 
       const nodesLayer = new PIXI.Container();
       viewport.addChild(nodesLayer);
 
-      // Draw edges as smooth curved branches (Style B)
-      const skillById = new Map(positioned.map((s) => [s.id, s] as const));
-      const edges: Array<{ fromId: string; toId: string; g: PIXI.Graphics }> = [];
-      for (const s of positioned) {
+      // Draw edges
+      const skillById = new Map(SKILL_TREE.skills.map((s) => [s.id, s] as const));
+      for (const s of SKILL_TREE.skills) {
         for (const pre of s.prereq) {
           const a = skillById.get(pre);
           if (!a) continue;
-
-          const ax = a.x;
-          const ay = a.y;
-          const bx = s.x;
-          const by = s.y;
-
-          const width = a.level === 1 ? TOKENS.size.branch.trunk : a.level === 2 ? TOKENS.size.branch.branch : TOKENS.size.branch.twig;
-
-          const c1x = ax;
-          const c1y = ay - Math.abs(by - ay) * 0.35;
-          const c2x = bx;
-          const c2y = by + Math.abs(by - ay) * 0.35;
-
-          const branch = new PIXI.Graphics();
-          // shadow
-          branch.moveTo(ax + 2, ay + 2);
-          branch.bezierCurveTo(c1x + 2, c1y + 2, c2x + 2, c2y + 2, bx + 2, by + 2);
-          branch.stroke({ width: width + 2, color: 0x000000, alpha: 0.22 });
-
-          // main line
-          branch.clear();
-          branch.moveTo(ax, ay);
-          branch.bezierCurveTo(c1x, c1y, c2x, c2y, bx, by);
-          branch.stroke({ width, color: TOKENS.color.wood.trunk, alpha: 0.80 });
-
-          edgesLayer.addChild(branch);
-          edges.push({ fromId: a.id, toId: s.id, g: branch });
+          edges.moveTo(a.x + 64, a.y + 16);
+          edges.lineTo(s.x, s.y + 16);
         }
       }
+      edges.stroke({ width: 3, color: 0x233057, alpha: 1 });
 
-      // Draw nodes (Style B: clear RPG nodes)
-      const nodeSprites: Array<{
-        skill: SkillNode & { x: number; y: number };
-        c: PIXI.Container;
-        g: PIXI.Graphics;
-        label: PIXI.Text;
-        domainColor: number;
-        r: number;
-      }> = [];
+      // Draw nodes
+      const nodeSprites: Array<{ skill: SkillNode; g: PIXI.Graphics; label: PIXI.Text }> = [];
 
-      const nodeById = new Map<string, (typeof nodeSprites)[number]>();
-
-      const makeNode = (skill: SkillNode & { x: number; y: number }) => {
+      const makeNode = (skill: SkillNode) => {
         const domain = domainById.get(skill.domainId);
-        const domainColor = domain?.color ?? TOKENS.color.magic.secondary;
-
-        const c = new PIXI.Container();
-        // 安全起見避免 NaN/undefined 造成全部堆到 (0,0)
-        c.x = Number.isFinite(skill.x) ? skill.x : 0;
-        c.y = Number.isFinite(skill.y) ? skill.y : 0;
+        const color = domain?.color ?? 0x94a3b8;
 
         const g = new PIXI.Graphics();
+        g.x = skill.x;
+        g.y = skill.y;
+
+        // (will be filled by refresh)
+        g.rect(0, 0, 128, 32);
 
         const label = new PIXI.Text({
           text: skill.name,
           style: {
-            fontFamily: "Inter, Noto Sans TC, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
+            fontFamily: "monospace",
             fontSize: 12,
-            fill: `#${TOKENS.color.text.primary.toString(16).padStart(6, "0")}`,
-            align: "center",
-            wordWrap: true,
-            wordWrapWidth: 120
+            fill: "#dbeafe",
+            align: "left"
           }
         });
-        label.anchor.set(0.5, 0);
+        label.x = 8;
+        label.y = 8;
 
-        // larger hit area for mobile
-        const r = skill.level === 1 ? TOKENS.size.node.r1 : skill.level === 2 ? TOKENS.size.node.r2 : TOKENS.size.node.r3;
-        c.eventMode = "static";
-        c.cursor = "pointer";
-        c.hitArea = new PIXI.Circle(0, 0, r + TOKENS.size.node.hitPad);
-
-        // place label relative to node NOW (do not wait for refresh)
-        label.x = 0;
-        label.y = r + 10;
-
-        c.on("pointertap", () => {
+        g.eventMode = "static";
+        g.cursor = "pointer";
+        g.on("pointertap", () => {
           const current = progress[skill.id] ?? "todo";
           setSelected({ skill, status: current });
-          setSidebarOpen(true);
-          setFocusY(skill.y);
           setProgress((p) => {
             const next = { ...p, [skill.id]: cycleStatus(p[skill.id]) };
             saveProgress(next);
@@ -231,129 +138,62 @@ export default function SkillTree() {
           });
         });
 
-        c.addChild(g);
-        c.addChild(label);
-        nodesLayer.addChild(c);
-        const ns = { skill, c, g, label, domainColor, r };
-        nodeSprites.push(ns);
-        nodeById.set(skill.id, ns);
+        // domain marker
+        const marker = new PIXI.Graphics();
+        marker.rect(0, 0, 6, 32).fill({ color });
+        g.addChild(marker);
+        g.addChild(label);
+
+        nodesLayer.addChild(g);
+        nodeSprites.push({ skill, g, label });
       };
 
-      for (const s of positioned) makeNode(s);
+      for (const s of SKILL_TREE.skills) makeNode(s);
 
-      const refresh = (tMs: number) => {
-        for (const { skill, g, label, domainColor, r } of nodeSprites) {
+      const refresh = () => {
+        for (const { skill, g } of nodeSprites) {
           const st = progress[skill.id] ?? "todo";
-          const locked = skill.prereq.some((id) => (progress[id] ?? "todo") !== "done");
-
-          // border color: per-domain by default; override for locked/done
-          const border =
-            locked && st !== "done"
-              ? TOKENS.color.status.locked
-              : st === "done"
-                ? TOKENS.color.status.done
-                : domainColor;
-
-          const fill = locked && st !== "done" ? 0x0b1220 : 0x0f172a;
-
-          // label dim when locked
-          label.alpha = locked && st !== "done" ? 0.45 : 0.95;
+          const domain = domainById.get(skill.domainId);
+          const base = domain?.color ?? 0x94a3b8;
 
           g.clear();
 
-          // node body
-          g.circle(0, 0, r + 2).fill({ color: 0x000000, alpha: 0.28 });
-          g.circle(0, 0, r).fill({ color: fill, alpha: 0.95 });
-          g.circle(0, 0, r).stroke({ width: 2, color: border, alpha: 0.95 });
+          const fill = st === "done" ? 0x123b2a : st === "learning" ? 0x1a2a52 : 0x0f172a;
+          const border = st === "done" ? base : 0x334155;
 
-          // inner ring
-          g.circle(0, 0, Math.max(6, r - 7)).stroke({ width: 1, color: 0xffffff, alpha: 0.08 });
+          // shadow
+          g.rect(3, 3, 128, 32).fill({ color: 0x000000, alpha: 0.35 });
+          // body
+          g.rect(0, 0, 128, 32).fill({ color: fill });
+          g.rect(0, 0, 128, 32).stroke({ width: 2, color: border, alpha: 1 });
 
-          // learning: animated progress ring (use magic primary)
-          if (st === "learning" && !locked) {
-            const phase = (tMs % TOKENS.motion.pulsePeriodMs) / TOKENS.motion.pulsePeriodMs;
-            const start = -Math.PI / 2;
-            const end = start + Math.PI * 2 * (0.35 + 0.55 * phase);
-            g.arc(0, 0, r + 6, start, end).stroke({ width: 3, color: TOKENS.color.magic.primary, alpha: 0.70 });
-          }
+          // left marker
+          g.rect(0, 0, 6, 32).fill({ color: base });
 
-          // done: small star spark
-          if (st === "done") {
-            g.circle(r - 6, -r + 6, 4).fill({ color: TOKENS.color.status.done, alpha: 0.95 });
-            g.circle(r - 6, -r + 6, 7).stroke({ width: 2, color: 0xffffff, alpha: 0.10 });
-          }
-
-          // locked overlay seal
+          // lock-ish overlay when prereq not done
+          const locked = skill.prereq.some((id) => (progress[id] ?? "todo") !== "done");
           if (locked && st !== "done") {
-            g.circle(0, 0, r).fill({ color: 0x000000, alpha: 0.22 });
-            g.arc(0, 0, r - 4, 0, Math.PI * 2).stroke({ width: 2, color: TOKENS.color.magic.secondary, alpha: 0.18 });
+            g.rect(0, 0, 128, 32).fill({ color: 0x000000, alpha: 0.25 });
           }
         }
       };
 
-      refresh(app.ticker.lastTime);
+      refresh();
 
       const onResize = () => {
         if (!containerRef.current) return;
         const w = containerRef.current.clientWidth;
         const h = containerRef.current.clientHeight;
         app.renderer.resize(w, h);
-        viewport.resize(w, h, worldWidth, worldHeight);
+        viewport.resize(w, h, 1400, 900);
       };
 
       window.addEventListener("resize", onResize);
-      app.ticker.add(() => {
-        // background motion
-        for (const s of sparkles) {
-          s.g.x += s.vx;
-          s.g.y += s.vy;
-          if (s.g.y < 0) s.g.y = worldHeight + 10;
-          if (s.g.x < -10) s.g.x = worldWidth + 10;
-          if (s.g.x > worldWidth + 10) s.g.x = -10;
-        }
-        fog.x = Math.sin(app.ticker.lastTime / 6000) * 12;
+      app.ticker.add(() => refresh());
 
-        const scale = viewport.scale.x;
-        const isMobile = window.matchMedia("(max-width: 820px)").matches;
-        const selectedId = selectedIdRef.current;
-
-        // Journey mode window (show only nearby nodes)
-        const journey = isMobile && journeyMode;
-        const centerY = focusY ?? (selectedId ? (nodeById.get(selectedId)?.skill.y ?? worldHeight * 0.85) : worldHeight * 0.85);
-        const windowPx = 340;
-
-        if (journey) {
-          for (const ns of nodeSprites) {
-            const near = Math.abs(ns.skill.y - centerY) <= windowPx;
-            const keep = ns.skill.id === selectedId;
-            ns.c.visible = near || keep;
-          }
-          // edges visible only when both endpoints visible
-          for (const e of edges) {
-            const a = nodeById.get(e.fromId);
-            const b = nodeById.get(e.toId);
-            e.g.visible = Boolean(a?.c.visible && b?.c.visible);
-          }
-        } else {
-          for (const ns of nodeSprites) ns.c.visible = true;
-          for (const e of edges) e.g.visible = true;
-        }
-
-        // labels strategy:
-        // - journey: show only selected (or none)
-        // - map: show when zoomed in
-        const showLabels = !isMobile && scale >= 1.15;
-        for (const ns of nodeSprites) {
-          ns.label.visible = journey ? ns.skill.id === selectedId : (showLabels && !selectedId) || ns.skill.id === selectedId;
-        }
-
-        refresh(app.ticker.lastTime);
-      });
-
-      // start position：先讓使用者看到「底部起點」
-      viewport.moveCenter(worldWidth / 2, worldHeight * 0.88);
+      // start position
+      viewport.moveCenter(700, 450);
       viewport.setZoom(1);
-      setFocusY(worldHeight * 0.88);
 
       return () => {
         window.removeEventListener("resize", onResize);
@@ -378,44 +218,18 @@ export default function SkillTree() {
   }, [progress]);
 
   return (
-    <div className={styles.root}>
-      <div ref={containerRef} className={styles.canvasWrap} />
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", height: "100vh" }}>
+      <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
 
-      <div className={styles.mobileBar}>
-        <button
-          className={`${styles.btn} ${styles.btnPrimary}`}
-          onClick={() => setJourneyMode((v) => !v)}
-        >
-          {journeyMode ? "Map" : "Journey"}
-        </button>
-        <button
-          className={styles.btn}
-          onClick={() => setSidebarOpen((v) => !v)}
-        >
-          {sidebarOpen ? "Close" : "Info"}
-        </button>
-        <button
-          className={styles.btn}
-          onClick={() => {
-            // re-center to focus
-            if (focusY != null) viewportRef.current?.moveCenter(viewportRef.current.worldWidth / 2, focusY);
-          }}
-        >
-          Center
-        </button>
-        <button
-          className={styles.btn}
-          onClick={() => {
-            setProgress({});
-            saveProgress({});
-            setSelected(null);
-          }}
-        >
-          Reset
-        </button>
-      </div>
-
-      <aside className={`${styles.sidebar} ${sidebarOpen ? styles.sidebarOpen : ""}`}>
+      <aside
+        style={{
+          padding: 16,
+          borderLeft: "1px solid #1f2a44",
+          background: "#070b17",
+          color: "#e5e7eb",
+          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace"
+        }}
+      >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
           <div style={{ fontSize: 14, color: "#93c5fd" }}>Frontend Skill Tree</div>
           <div style={{ fontSize: 12, opacity: 0.8 }}>v{SKILL_TREE.version}</div>
@@ -467,22 +281,6 @@ export default function SkillTree() {
           }}
         >
           Reset progress
-        </button>
-
-        <div style={{ height: 12 }} />
-
-        <button
-          onClick={() => setSidebarOpen(false)}
-          style={{
-            width: "100%",
-            padding: "10px 12px",
-            background: "transparent",
-            border: "1px solid #334155",
-            color: "#e5e7eb",
-            cursor: "pointer"
-          }}
-        >
-          Close
         </button>
       </aside>
     </div>
