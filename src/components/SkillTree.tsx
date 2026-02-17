@@ -6,6 +6,7 @@ import { Viewport } from "pixi-viewport";
 
 import styles from "./SkillTree.module.css";
 import { SKILL_TREE } from "@/lib/skillTreeData";
+import { layoutBottomUp } from "@/lib/layout";
 import { cycleStatus, loadProgress, saveProgress, type ProgressMap } from "@/lib/progress";
 import type { SkillNode, SkillStatus } from "@/lib/types";
 
@@ -40,6 +41,8 @@ export default function SkillTree() {
     const el = containerRef.current;
     if (!el) return;
 
+    const { positioned, worldWidth, worldHeight } = layoutBottomUp(SKILL_TREE.skills);
+
     // 避免 dev hot reload 疊加 multiple canvases
     el.innerHTML = "";
 
@@ -61,8 +64,8 @@ export default function SkillTree() {
       const viewport = new Viewport({
         screenWidth: el.clientWidth,
         screenHeight: el.clientHeight,
-        worldWidth: 1400,
-        worldHeight: 900,
+        worldWidth,
+        worldHeight,
         events: app.renderer.events,
         // mobile: 不要讓 viewport 在邊界卡住
         passiveWheel: false
@@ -75,13 +78,13 @@ export default function SkillTree() {
 
       // pixel-ish grid background
       const grid = new PIXI.Graphics();
-      grid.rect(0, 0, 1400, 900).fill({ color: 0x0b1020 });
+      grid.rect(0, 0, worldWidth, worldHeight).fill({ color: 0x0b1020 });
       const step = 40;
-      for (let x = 0; x <= 1400; x += step) {
-        grid.moveTo(x, 0).lineTo(x, 900);
+      for (let x = 0; x <= worldWidth; x += step) {
+        grid.moveTo(x, 0).lineTo(x, worldHeight);
       }
-      for (let y = 0; y <= 900; y += step) {
-        grid.moveTo(0, y).lineTo(1400, y);
+      for (let y = 0; y <= worldHeight; y += step) {
+        grid.moveTo(0, y).lineTo(worldWidth, y);
       }
       grid.stroke({ width: 1, color: 0x101a33, alpha: 1 });
       viewport.addChild(grid);
@@ -92,22 +95,32 @@ export default function SkillTree() {
       const nodesLayer = new PIXI.Container();
       viewport.addChild(nodesLayer);
 
-      // Draw edges
-      const skillById = new Map(SKILL_TREE.skills.map((s) => [s.id, s] as const));
-      for (const s of SKILL_TREE.skills) {
+      // Draw edges (bottom -> top)
+      const skillById = new Map(positioned.map((s) => [s.id, s] as const));
+      for (const s of positioned) {
         for (const pre of s.prereq) {
           const a = skillById.get(pre);
           if (!a) continue;
-          edges.moveTo(a.x + 64, a.y + 16);
-          edges.lineTo(s.x, s.y + 16);
+
+          const ax = a.x + 64;
+          const ay = a.y + 16;
+          const bx = s.x + 64;
+          const by = s.y + 16;
+
+          // 簡單折線：先往上，再水平
+          const midY = (ay + by) / 2;
+          edges.moveTo(ax, ay);
+          edges.lineTo(ax, midY);
+          edges.lineTo(bx, midY);
+          edges.lineTo(bx, by);
         }
       }
       edges.stroke({ width: 3, color: 0x233057, alpha: 1 });
 
       // Draw nodes
-      const nodeSprites: Array<{ skill: SkillNode; g: PIXI.Graphics; label: PIXI.Text }> = [];
+      const nodeSprites: Array<{ skill: SkillNode & { x: number; y: number }; g: PIXI.Graphics; label: PIXI.Text }> = [];
 
-      const makeNode = (skill: SkillNode) => {
+      const makeNode = (skill: SkillNode & { x: number; y: number }) => {
         const domain = domainById.get(skill.domainId);
         const color = domain?.color ?? 0x94a3b8;
 
@@ -153,7 +166,7 @@ export default function SkillTree() {
         nodeSprites.push({ skill, g, label });
       };
 
-      for (const s of SKILL_TREE.skills) makeNode(s);
+      for (const s of positioned) makeNode(s);
 
       const refresh = () => {
         for (const { skill, g } of nodeSprites) {
@@ -190,14 +203,14 @@ export default function SkillTree() {
         const w = containerRef.current.clientWidth;
         const h = containerRef.current.clientHeight;
         app.renderer.resize(w, h);
-        viewport.resize(w, h, 1400, 900);
+        viewport.resize(w, h, worldWidth, worldHeight);
       };
 
       window.addEventListener("resize", onResize);
       app.ticker.add(() => refresh());
 
-      // start position
-      viewport.moveCenter(700, 450);
+      // start position：先讓使用者看到「底部起點」
+      viewport.moveCenter(worldWidth / 2, worldHeight - 120);
       viewport.setZoom(1);
 
       return () => {

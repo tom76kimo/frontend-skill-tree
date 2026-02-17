@@ -13,8 +13,9 @@ export type SkillNode = {
   level: 1 | 2 | 3;
   desc: string;
   prereq: string[];
-  x: number;
-  y: number;
+  // 位置可由 layout 自動計算；若提供則可當作 manual override（目前 v1 以自動為主）
+  x?: number;
+  y?: number;
   tags?: string[];
 };
 
