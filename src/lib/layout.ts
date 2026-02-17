@@ -40,49 +40,68 @@ function topoSort(skills: SkillNode[]): SkillNode[] {
 
 export function layoutBottomUp(skills: SkillNode[], opts?: {
   worldWidth?: number;
-  bottomY?: number;
-  topY?: number;
-  nodeW?: number;
-  nodeH?: number;
-  xPadding?: number;
+  worldHeight?: number;
 }): { positioned: PositionedSkill[]; worldHeight: number; worldWidth: number } {
   const worldWidth = opts?.worldWidth ?? 1400;
-  const bottomY = opts?.bottomY ?? 760;
-  const topY = opts?.topY ?? 120;
-  const nodeW = opts?.nodeW ?? 140;
-  const nodeH = opts?.nodeH ?? 52;
-  const xPadding = opts?.xPadding ?? 40;
+  const worldHeight = opts?.worldHeight ?? 1200;
 
-  const levels = [1, 2, 3] as const;
-
-  // 排序：先 topo，再依 level 穩定分層
+  // Style B: enforce a single "tree" silhouette (root -> trunk -> branches -> canopy)
   const ordered = topoSort(skills);
 
-  const byLevel = new Map<number, SkillNode[]>();
-  for (const lv of levels) byLevel.set(lv, []);
-  for (const s of ordered) {
-    byLevel.get(s.level)?.push(s);
-  }
+  const lv1 = ordered.filter((s) => s.level === 1);
+  const lv2 = ordered.filter((s) => s.level === 2);
+  const lv3 = ordered.filter((s) => s.level === 3);
 
-  const levelCount = levels.length;
-  const gapY = levelCount > 1 ? (bottomY - topY) / (levelCount - 1) : 0;
+  const xCenter = worldWidth / 2;
+
+  // Zones (percent of height)
+  const yRoot = worldHeight * 0.86;
+  const yTrunk = worldHeight * 0.62;
+  const yBranch = worldHeight * 0.38;
+
+  // Slight trunk sway for organic feel
+  const trunkX = (t: number) => xCenter + Math.sin(t * 2.2) * 18;
 
   const positioned: PositionedSkill[] = [];
 
-  for (const lv of levels) {
-    const items = byLevel.get(lv) ?? [];
-    const count = items.length;
+  const placeRow = (items: SkillNode[], y: number, spread: number) => {
+    const n = items.length;
+    if (n === 0) return;
 
-    const usableW = worldWidth - xPadding * 2;
-    const stepX = count <= 1 ? 0 : usableW / (count - 1);
-    const y = bottomY - (lv - 1) * gapY; // lv=1 在底部，lv=3 在上面
+    // center-out ordering to keep "tree" dense in middle
+    const ids = [...items];
+    const centerFirst: SkillNode[] = [];
+    const mid = Math.floor(n / 2);
+    for (let i = 0; i < n; i++) {
+      const j = i % 2 === 0 ? mid + i / 2 : mid - (i + 1) / 2;
+      if (ids[j]) centerFirst.push(ids[j]);
+    }
 
-    items.forEach((s, idx) => {
-      const x = count <= 1 ? worldWidth / 2 - nodeW / 2 : xPadding + idx * stepX - nodeW / 2;
-      positioned.push({ ...s, x, y: y - nodeH / 2 });
+    const step = n === 1 ? 0 : (spread * 2) / (n - 1);
+    centerFirst.forEach((s, idx) => {
+      const x = xCenter - spread + idx * step;
+      positioned.push({ ...s, x, y });
     });
-  }
+  };
 
-  const worldHeight = Math.max(bottomY + 120, 900);
-  return { positioned, worldHeight, worldWidth };
+  // Root: narrow
+  placeRow(lv1, yRoot, 180);
+
+  // Trunk: medium
+  placeRow(lv2, yTrunk, 300);
+
+  // Canopy: wide (most)
+  placeRow(lv3, yBranch, 480);
+
+  // Nudge nodes onto a "tree" silhouette curve by level
+  const result = positioned.map((s) => {
+    const t = s.level === 1 ? 0.05 : s.level === 2 ? 0.45 : 0.8;
+    const tx = trunkX(t);
+    const dx = s.x - xCenter;
+    // pull slightly towards trunk to avoid extreme spread looking like a row
+    const x = tx + dx * (s.level === 3 ? 0.95 : 0.85);
+    return { ...s, x };
+  });
+
+  return { positioned: result, worldHeight, worldWidth };
 }

@@ -54,8 +54,8 @@ export default function SkillTree() {
       await app.init({
         width: el.clientWidth,
         height: el.clientHeight,
-        background: "#0b1020",
-        antialias: false,
+        background: `#${TOKENS.color.bg.base.toString(16).padStart(6, "0")}`,
+        antialias: true,
         resolution: window.devicePixelRatio || 1,
         autoDensity: true
       });
@@ -77,108 +77,87 @@ export default function SkillTree() {
 
       viewport.drag().pinch().wheel().decelerate();
 
-      // --- Background layers (fantasy tree vibe) ---
+      // --- Background layers (Style B: readable RPG UI) ---
       const bg = new PIXI.Container();
       viewport.addChild(bg);
 
-      const far = new PIXI.Graphics();
-      // base
-      far.rect(0, 0, worldWidth, worldHeight).fill({ color: TOKENS.color.bg.base });
-      // simple silhouettes (cheap but effective)
-      const horizonY = worldHeight * 0.78;
-      far.rect(0, horizonY, worldWidth, worldHeight - horizonY).fill({ color: 0x070b17 });
-      for (let i = 0; i < 18; i++) {
-        const x = (i / 18) * worldWidth + ((i % 2) * 40 - 20);
-        const h = 90 + (i % 5) * 28;
-        const w = 60 + (i % 4) * 20;
-        // trunk
-        far.roundRect(x, horizonY - h, w * 0.22, h, 6).fill({ color: 0x0a0f1e, alpha: 0.8 });
-        // canopy
-        far.circle(x + w * 0.11, horizonY - h - 20, w * 0.55).fill({ color: 0x0a0f1e, alpha: 0.55 });
-      }
-      bg.addChild(far);
+      const base = new PIXI.Graphics();
+      base.rect(0, 0, worldWidth, worldHeight).fill({ color: TOKENS.color.bg.base });
+      bg.addChild(base);
 
+      // soft fog blobs
       const fog = new PIXI.Graphics();
-      for (let i = 0; i < 10; i++) {
-        fog.circle((i / 10) * worldWidth + 80, horizonY - 40 + (i % 3) * 10, 180 + (i % 4) * 30)
-          .fill({ color: TOKENS.color.bg.fog, alpha: 0.035 });
+      for (let i = 0; i < 12; i++) {
+        fog.circle((i / 12) * worldWidth + 60, worldHeight * 0.3 + (i % 4) * 26, 220 + (i % 5) * 24)
+          .fill({ color: TOKENS.color.bg.fog, alpha: 0.06 });
       }
-      fog.alpha = 1;
       bg.addChild(fog);
 
+      // vignette
+      const vignette = new PIXI.Graphics();
+      vignette.rect(0, 0, worldWidth, worldHeight).fill({ color: TOKENS.color.bg.vignette, alpha: 0.22 });
+      vignette.alpha = 0.35;
+      bg.addChild(vignette);
+
+      // particles
       const particles = new PIXI.Container();
       bg.addChild(particles);
       const sparkles: Array<{ g: PIXI.Graphics; vx: number; vy: number }> = [];
-      for (let i = 0; i < 40; i++) {
+      for (let i = 0; i < 34; i++) {
         const p = new PIXI.Graphics();
-        p.circle(0, 0, 1 + (i % 3)).fill({ color: TOKENS.color.magic.cyan, alpha: 0.22 });
+        p.circle(0, 0, 1 + (i % 2)).fill({ color: TOKENS.color.magic.primary, alpha: 0.18 });
         p.x = Math.random() * worldWidth;
         p.y = Math.random() * worldHeight;
         particles.addChild(p);
-        sparkles.push({ g: p, vx: (Math.random() - 0.5) * 0.12, vy: -0.05 - Math.random() * 0.08 });
+        sparkles.push({ g: p, vx: (Math.random() - 0.5) * 0.10, vy: -0.04 - Math.random() * 0.07 });
       }
-
-      // subtle grid (optional)
-      const grid = new PIXI.Graphics();
-      const step = 40;
-      for (let x = 0; x <= worldWidth; x += step) grid.moveTo(x, 0).lineTo(x, worldHeight);
-      for (let y = 0; y <= worldHeight; y += step) grid.moveTo(0, y).lineTo(worldWidth, y);
-      grid.stroke({ width: 1, color: TOKENS.color.bg.grid, alpha: 0.18 });
-      bg.addChild(grid);
 
       // Layers for branches/nodes
       const edgesLayer = new PIXI.Container();
       viewport.addChild(edgesLayer);
 
-      const knotsLayer = new PIXI.Container();
-      viewport.addChild(knotsLayer);
-
       const nodesLayer = new PIXI.Container();
       viewport.addChild(nodesLayer);
 
-      // Draw edges as "branches" (vary thickness, add knots)
+      // Draw edges as smooth curved branches (Style B)
       const skillById = new Map(positioned.map((s) => [s.id, s] as const));
       for (const s of positioned) {
         for (const pre of s.prereq) {
           const a = skillById.get(pre);
           if (!a) continue;
 
-          const ax = a.x + TOKENS.size.node.w / 2;
-          const ay = a.y + TOKENS.size.node.h / 2;
-          const bx = s.x + TOKENS.size.node.w / 2;
-          const by = s.y + TOKENS.size.node.h / 2;
+          const ax = a.x;
+          const ay = a.y;
+          const bx = s.x;
+          const by = s.y;
 
-          const midY = (ay + by) / 2;
-
-          // thickness: closer to root (lower level) = thicker
           const width = a.level === 1 ? TOKENS.size.branch.trunk : a.level === 2 ? TOKENS.size.branch.branch : TOKENS.size.branch.twig;
 
+          const c1x = ax;
+          const c1y = ay - Math.abs(by - ay) * 0.35;
+          const c2x = bx;
+          const c2y = by + Math.abs(by - ay) * 0.35;
+
           const branch = new PIXI.Graphics();
-          // shadow pass
-          branch.moveTo(ax + 2, ay + 2).lineTo(ax + 2, midY + 2).lineTo(bx + 2, midY + 2).lineTo(bx + 2, by + 2);
-          branch.stroke({ width: width + 2, color: TOKENS.color.branch.shadow, alpha: 0.25 });
-          // bark pass
+          // shadow
+          branch.moveTo(ax + 2, ay + 2);
+          branch.bezierCurveTo(c1x + 2, c1y + 2, c2x + 2, c2y + 2, bx + 2, by + 2);
+          branch.stroke({ width: width + 2, color: 0x000000, alpha: 0.22 });
+
+          // main line
           branch.clear();
-          branch.moveTo(ax, ay).lineTo(ax, midY).lineTo(bx, midY).lineTo(bx, by);
-          branch.stroke({ width, color: TOKENS.color.branch.base, alpha: 0.95 });
+          branch.moveTo(ax, ay);
+          branch.bezierCurveTo(c1x, c1y, c2x, c2y, bx, by);
+          branch.stroke({ width, color: TOKENS.color.wood.trunk, alpha: 0.80 });
 
           edgesLayer.addChild(branch);
-
-          // knot at fork joint (mid point)
-          const knot = new PIXI.Graphics();
-          knot.circle(ax, midY, Math.max(4, width)).fill({ color: 0x1b120c, alpha: 0.9 });
-          knot.circle(ax, midY, Math.max(4, width) + 2).stroke({ width: 2, color: 0x3a2b20, alpha: 0.8 });
-          knotsLayer.addChild(knot);
         }
       }
 
-      // Draw nodes
+      // Draw nodes (Style B: clear RPG nodes)
       const nodeSprites: Array<{ skill: SkillNode & { x: number; y: number }; g: PIXI.Graphics; label: PIXI.Text }> = [];
 
       const makeNode = (skill: SkillNode & { x: number; y: number }) => {
-        const domain = domainById.get(skill.domainId);
-        const domainColor = domain?.color ?? 0x94a3b8;
-
         const g = new PIXI.Graphics();
         g.x = skill.x;
         g.y = skill.y;
@@ -186,25 +165,22 @@ export default function SkillTree() {
         const label = new PIXI.Text({
           text: skill.name,
           style: {
-            fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+            fontFamily: "Inter, Noto Sans TC, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
             fontSize: 12,
-            fill: "#eaf0ff",
-            align: "left"
+            fill: `#${TOKENS.color.text.primary.toString(16).padStart(6, "0")}`,
+            align: "center"
           }
         });
-        label.x = 16;
-        label.y = 18;
+        label.anchor.set(0.5, 0);
+        label.x = 0;
+        label.y = 32;
 
         g.eventMode = "static";
         g.cursor = "pointer";
+        // larger hit area for mobile
+        const r = skill.level === 1 ? TOKENS.size.node.r1 : skill.level === 2 ? TOKENS.size.node.r2 : TOKENS.size.node.r3;
+        g.hitArea = new PIXI.Circle(0, 0, r + TOKENS.size.node.hitPad);
 
-        // domain marker (small gem)
-        const gem = new PIXI.Graphics();
-        gem.circle(14, 14, 6).fill({ color: domainColor, alpha: 0.95 });
-        gem.circle(14, 14, 8).stroke({ width: 2, color: 0xffffff, alpha: 0.10 });
-
-        g.addChild(gem);
-        g.addChild(label);
         g.on("pointertap", () => {
           const current = progress[skill.id] ?? "todo";
           setSelected({ skill, status: current });
@@ -216,99 +192,67 @@ export default function SkillTree() {
           });
         });
 
-        // (legacy marker removed; we use gem icon instead)
-
         nodesLayer.addChild(g);
+        nodesLayer.addChild(label);
         nodeSprites.push({ skill, g, label });
       };
 
       for (const s of positioned) makeNode(s);
 
-      const refresh = () => {
-        for (const { skill, g } of nodeSprites) {
+      const refresh = (tMs: number) => {
+        for (const { skill, g, label } of nodeSprites) {
           const st = progress[skill.id] ?? "todo";
-          const domain = domainById.get(skill.domainId);
-          const base = domain?.color ?? 0x94a3b8;
+          const locked = skill.prereq.some((id) => (progress[id] ?? "todo") !== "done");
+
+          const r = skill.level === 1 ? TOKENS.size.node.r1 : skill.level === 2 ? TOKENS.size.node.r2 : TOKENS.size.node.r3;
+
+          const border =
+            locked && st !== "done"
+              ? TOKENS.color.status.locked
+              : st === "done"
+                ? TOKENS.color.status.done
+                : st === "learning"
+                  ? TOKENS.color.status.learning
+                  : TOKENS.color.status.todo;
+
+          const fill = locked && st !== "done" ? 0x0b1220 : 0x0f172a;
+
+          // label dim when locked
+          label.alpha = locked && st !== "done" ? 0.45 : 0.95;
 
           g.clear();
 
-          const locked = skill.prereq.some((id) => (progress[id] ?? "todo") !== "done");
+          // node body
+          g.circle(0, 0, r + 2).fill({ color: 0x000000, alpha: 0.28 });
+          g.circle(0, 0, r).fill({ color: fill, alpha: 0.95 });
+          g.circle(0, 0, r).stroke({ width: 2, color: border, alpha: 0.95 });
 
-          // fills
-          const fill =
-            locked && st !== "done"
-              ? TOKENS.color.node.lockedFill
-              : st === "done"
-                ? TOKENS.color.node.doneFill
-                : st === "learning"
-                  ? TOKENS.color.node.learningFill
-                  : TOKENS.color.node.todoFill;
+          // inner ring (style)
+          g.circle(0, 0, Math.max(6, r - 7)).stroke({ width: 1, color: 0xffffff, alpha: 0.08 });
 
-          const border =
-            st === "done"
-              ? TOKENS.color.metal.gold
-              : st === "learning"
-                ? TOKENS.color.magic.cyan
-                : TOKENS.color.node.strokeDim;
-
-          const w = TOKENS.size.node.w;
-          const h = TOKENS.size.node.h;
-
-          // shadow
-          g.roundRect(4, 5, w, h, 14).fill({ color: 0x000000, alpha: 0.28 });
-
-          // shape per level: leaf / rune / fruit
-          if (skill.level === 1) {
-            // leaf-like capsule
-            g.roundRect(0, 0, w, h, 26).fill({ color: fill, alpha: 0.95 });
-            g.roundRect(0, 0, w, h, 26).stroke({ width: 2, color: border, alpha: 0.85 });
-          } else if (skill.level === 2) {
-            // rune: hex-ish
-            const x0 = 0, y0 = 0;
-            const pts = [
-              x0 + 18, y0,
-              x0 + w - 18, y0,
-              x0 + w, y0 + h / 2,
-              x0 + w - 18, y0 + h,
-              x0 + 18, y0 + h,
-              x0, y0 + h / 2,
-            ];
-            g.poly(pts).fill({ color: fill, alpha: 0.95 });
-            g.poly(pts).stroke({ width: 2, color: border, alpha: 0.85 });
-          } else {
-            // fruit: circle badge with plate
-            g.roundRect(0, 0, w, h, 14).fill({ color: fill, alpha: 0.85 });
-            g.roundRect(0, 0, w, h, 14).stroke({ width: 2, color: border, alpha: 0.85 });
-            g.circle(18, h / 2, 10).fill({ color: st === "done" ? TOKENS.color.metal.gold : TOKENS.color.magic.purple, alpha: locked ? 0.35 : 0.95 });
-            g.circle(18, h / 2, 12).stroke({ width: 2, color: 0xffffff, alpha: 0.10 });
-          }
-
-          // subtle inner rune lines (learning)
+          // learning: animated progress ring
           if (st === "learning" && !locked) {
-            g.roundRect(8, 10, w - 16, h - 20, 10).stroke({ width: 1, color: TOKENS.color.magic.cyan, alpha: 0.25 });
+            const phase = (tMs % TOKENS.motion.pulsePeriodMs) / TOKENS.motion.pulsePeriodMs;
+            const start = -Math.PI / 2;
+            const end = start + Math.PI * 2 * (0.35 + 0.55 * phase);
+            g.arc(0, 0, r + 6, start, end).stroke({ width: 3, color: TOKENS.color.magic.primary, alpha: 0.65 });
           }
 
-          // locked overlay fog
-          if (locked && st !== "done") {
-            g.roundRect(0, 0, w, h, 16).fill({ color: 0x000000, alpha: 0.18 });
-            // small lock badge
-            g.roundRect(w - 22, 6, 16, 14, 4).fill({ color: 0x000000, alpha: 0.35 });
-            g.roundRect(w - 22, 6, 16, 14, 4).stroke({ width: 1, color: 0xffffff, alpha: 0.12 });
-          }
-
-          // done badge
+          // done: small star spark
           if (st === "done") {
-            g.circle(w - 14, 14, 8).fill({ color: TOKENS.color.metal.gold, alpha: 0.95 });
-            g.circle(w - 14, 14, 10).stroke({ width: 2, color: 0xffffff, alpha: 0.10 });
+            g.circle(r - 6, -r + 6, 4).fill({ color: TOKENS.color.status.done, alpha: 0.95 });
+            g.circle(r - 6, -r + 6, 7).stroke({ width: 2, color: 0xffffff, alpha: 0.10 });
           }
 
-          // domain gem (re-draw on top)
-          g.circle(14, 14, 6).fill({ color: base, alpha: locked ? 0.25 : 0.95 });
-          g.circle(14, 14, 8).stroke({ width: 2, color: 0xffffff, alpha: 0.10 });
+          // locked overlay seal
+          if (locked && st !== "done") {
+            g.circle(0, 0, r).fill({ color: 0x000000, alpha: 0.22 });
+            g.arc(0, 0, r - 4, 0, Math.PI * 2).stroke({ width: 2, color: TOKENS.color.magic.secondary, alpha: 0.18 });
+          }
         }
       };
 
-      refresh();
+      refresh(app.ticker.lastTime);
 
       const onResize = () => {
         if (!containerRef.current) return;
@@ -330,11 +274,11 @@ export default function SkillTree() {
         }
         fog.x = Math.sin(app.ticker.lastTime / 6000) * 12;
 
-        refresh();
+        refresh(app.ticker.lastTime);
       });
 
       // start position：先讓使用者看到「底部起點」
-      viewport.moveCenter(worldWidth / 2, worldHeight - 120);
+      viewport.moveCenter(worldWidth / 2, worldHeight * 0.85);
       viewport.setZoom(1);
 
       return () => {

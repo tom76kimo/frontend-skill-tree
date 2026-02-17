@@ -1,48 +1,50 @@
 export const TOKENS = {
+  // Style B: game-like hand-drawn fantasy, high readability
   color: {
     bg: {
-      base: 0x0b1020,
-      grid: 0x101a33,
-      fog: 0x5fa8ff,
+      base: 0x0a1b24,
+      fog: 0x9fb6c4,
+      vignette: 0x05080f,
     },
-    text: {
-      primary: 0xeaf0ff,
-      muted: 0xb6c2ff,
+    wood: {
+      trunk: 0x6a4b32,
+      leaf: 0x1f3b2d,
     },
     magic: {
-      cyan: 0x3ff2c5,
-      purple: 0x8b5cff,
+      primary: 0x4de1c1, // mint-cyan
+      secondary: 0x6fa8ff, // blue
     },
-    metal: {
-      gold: 0xd6b25e,
+    text: {
+      primary: 0xf2ede1,
+      muted: 0x9fb6c4,
     },
-    branch: {
-      base: 0x2a1e16,
-      shadow: 0x000000,
-      glow: 0x3ff2c5,
+    ui: {
+      panel: 0x0b1220,
+      border: 0x213043,
     },
-    node: {
-      todoFill: 0x0f172a,
-      learningFill: 0x101f3f,
-      doneFill: 0x1a2a1f,
-      lockedFill: 0x2a2f3f,
-      strokeDim: 0x2a3a55,
+    status: {
+      todo: 0x334155,
+      learning: 0x4de1c1,
+      done: 0xd6b25e,
+      locked: 0x64748b,
+      warning: 0xff6b4a,
     },
   },
   size: {
     node: {
-      w: 140,
-      h: 52,
-      icon: 16,
-      badge: 16,
+      r1: 18,
+      r2: 22,
+      r3: 26,
+      hitPad: 14,
     },
     branch: {
-      trunk: 9,
-      branch: 6,
-      twig: 4,
+      trunk: 8,
+      branch: 5,
+      twig: 3,
     },
   },
   motion: {
-    hoverScale: 1.04,
+    hoverScale: 1.06,
+    pulsePeriodMs: 1400,
   },
 } as const;
