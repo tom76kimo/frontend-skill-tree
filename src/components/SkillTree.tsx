@@ -155,12 +155,23 @@ export default function SkillTree() {
       }
 
       // Draw nodes (Style B: clear RPG nodes)
-      const nodeSprites: Array<{ skill: SkillNode & { x: number; y: number }; g: PIXI.Graphics; label: PIXI.Text }> = [];
+      const nodeSprites: Array<{
+        skill: SkillNode & { x: number; y: number };
+        c: PIXI.Container;
+        g: PIXI.Graphics;
+        label: PIXI.Text;
+        domainColor: number;
+      }> = [];
 
       const makeNode = (skill: SkillNode & { x: number; y: number }) => {
+        const domain = domainById.get(skill.domainId);
+        const domainColor = domain?.color ?? TOKENS.color.magic.secondary;
+
+        const c = new PIXI.Container();
+        c.x = skill.x;
+        c.y = skill.y;
+
         const g = new PIXI.Graphics();
-        g.x = skill.x;
-        g.y = skill.y;
 
         const label = new PIXI.Text({
           text: skill.name,
@@ -172,16 +183,14 @@ export default function SkillTree() {
           }
         });
         label.anchor.set(0.5, 0);
-        label.x = 0;
-        label.y = 32;
 
-        g.eventMode = "static";
-        g.cursor = "pointer";
         // larger hit area for mobile
         const r = skill.level === 1 ? TOKENS.size.node.r1 : skill.level === 2 ? TOKENS.size.node.r2 : TOKENS.size.node.r3;
-        g.hitArea = new PIXI.Circle(0, 0, r + TOKENS.size.node.hitPad);
+        c.eventMode = "static";
+        c.cursor = "pointer";
+        c.hitArea = new PIXI.Circle(0, 0, r + TOKENS.size.node.hitPad);
 
-        g.on("pointertap", () => {
+        c.on("pointertap", () => {
           const current = progress[skill.id] ?? "todo";
           setSelected({ skill, status: current });
           setSidebarOpen(true);
@@ -192,32 +201,34 @@ export default function SkillTree() {
           });
         });
 
-        nodesLayer.addChild(g);
-        nodesLayer.addChild(label);
-        nodeSprites.push({ skill, g, label });
+        c.addChild(g);
+        c.addChild(label);
+        nodesLayer.addChild(c);
+        nodeSprites.push({ skill, c, g, label, domainColor });
       };
 
       for (const s of positioned) makeNode(s);
 
       const refresh = (tMs: number) => {
-        for (const { skill, g, label } of nodeSprites) {
+        for (const { skill, g, label, domainColor } of nodeSprites) {
           const st = progress[skill.id] ?? "todo";
           const locked = skill.prereq.some((id) => (progress[id] ?? "todo") !== "done");
 
           const r = skill.level === 1 ? TOKENS.size.node.r1 : skill.level === 2 ? TOKENS.size.node.r2 : TOKENS.size.node.r3;
 
+          // border color: per-domain by default; override for locked/done
           const border =
             locked && st !== "done"
               ? TOKENS.color.status.locked
               : st === "done"
                 ? TOKENS.color.status.done
-                : st === "learning"
-                  ? TOKENS.color.status.learning
-                  : TOKENS.color.status.todo;
+                : domainColor;
 
           const fill = locked && st !== "done" ? 0x0b1220 : 0x0f172a;
 
-          // label dim when locked
+          // label placement + dim when locked
+          label.x = 0;
+          label.y = r + 10;
           label.alpha = locked && st !== "done" ? 0.45 : 0.95;
 
           g.clear();
@@ -227,15 +238,15 @@ export default function SkillTree() {
           g.circle(0, 0, r).fill({ color: fill, alpha: 0.95 });
           g.circle(0, 0, r).stroke({ width: 2, color: border, alpha: 0.95 });
 
-          // inner ring (style)
+          // inner ring
           g.circle(0, 0, Math.max(6, r - 7)).stroke({ width: 1, color: 0xffffff, alpha: 0.08 });
 
-          // learning: animated progress ring
+          // learning: animated progress ring (use magic primary)
           if (st === "learning" && !locked) {
             const phase = (tMs % TOKENS.motion.pulsePeriodMs) / TOKENS.motion.pulsePeriodMs;
             const start = -Math.PI / 2;
             const end = start + Math.PI * 2 * (0.35 + 0.55 * phase);
-            g.arc(0, 0, r + 6, start, end).stroke({ width: 3, color: TOKENS.color.magic.primary, alpha: 0.65 });
+            g.arc(0, 0, r + 6, start, end).stroke({ width: 3, color: TOKENS.color.magic.primary, alpha: 0.70 });
           }
 
           // done: small star spark
