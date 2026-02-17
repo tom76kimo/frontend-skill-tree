@@ -42,7 +42,8 @@ export default function SkillTree() {
     const el = containerRef.current;
     if (!el) return;
 
-    const { positioned, worldWidth, worldHeight } = layoutBottomUp(SKILL_TREE.skills);
+    // more vertical space to avoid label overlap
+    const { positioned, worldWidth, worldHeight } = layoutBottomUp(SKILL_TREE.skills, { worldHeight: 1600 });
 
     // 避免 dev hot reload 疊加 multiple canvases
     el.innerHTML = "";
@@ -181,7 +182,9 @@ export default function SkillTree() {
             fontFamily: "Inter, Noto Sans TC, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial",
             fontSize: 12,
             fill: `#${TOKENS.color.text.primary.toString(16).padStart(6, "0")}`,
-            align: "center"
+            align: "center",
+            wordWrap: true,
+            wordWrapWidth: 120
           }
         });
         label.anchor.set(0.5, 0);
@@ -286,6 +289,11 @@ export default function SkillTree() {
           if (s.g.x > worldWidth + 10) s.g.x = -10;
         }
         fog.x = Math.sin(app.ticker.lastTime / 6000) * 12;
+
+        // hide labels when zoomed out to avoid unreadable overlap
+        const scale = viewport.scale.x;
+        const showLabels = scale >= 0.9;
+        for (const ns of nodeSprites) ns.label.visible = showLabels;
 
         refresh(app.ticker.lastTime);
       });
