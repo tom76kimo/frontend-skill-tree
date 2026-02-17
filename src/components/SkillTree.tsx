@@ -29,6 +29,10 @@ export default function SkillTree() {
   const [selected, setSelected] = useState<Selected>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // mobile-friendly mode: Journey (show only nearby nodes) vs Map (show all)
+  const [journeyMode, setJourneyMode] = useState(false);
+  const [focusY, setFocusY] = useState<number | null>(null);
+
   const selectedIdRef = useRef<string | null>(null);
   useEffect(() => {
     selectedIdRef.current = selected?.skill.id ?? null;
@@ -44,11 +48,18 @@ export default function SkillTree() {
   }, []);
 
   useEffect(() => {
+    // default Journey on mobile
+    if (typeof window === "undefined") return;
+    const isMobile = window.matchMedia("(max-width: 820px)").matches;
+    if (isMobile) setJourneyMode(true);
+  }, []);
+
+  useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
     // more vertical space to avoid label overlap
-    const { positioned, worldWidth, worldHeight } = layoutBottomUp(SKILL_TREE.skills, { worldHeight: 1600 });
+    const { positioned, worldWidth, worldHeight } = layoutBottomUp(SKILL_TREE.skills, { worldHeight: 1800 });
 
     // 避免 dev hot reload 疊加 multiple canvases
     el.innerHTML = "";
@@ -127,6 +138,7 @@ export default function SkillTree() {
 
       // Draw edges as smooth curved branches (Style B)
       const skillById = new Map(positioned.map((s) => [s.id, s] as const));
+      const edges: Array<{ fromId: string; toId: string; g: PIXI.Graphics }> = [];
       for (const s of positioned) {
         for (const pre of s.prereq) {
           const a = skillById.get(pre);
@@ -157,6 +169,7 @@ export default function SkillTree() {
           branch.stroke({ width, color: TOKENS.color.wood.trunk, alpha: 0.80 });
 
           edgesLayer.addChild(branch);
+          edges.push({ fromId: a.id, toId: s.id, g: branch });
         }
       }
 
@@ -169,6 +182,8 @@ export default function SkillTree() {
         domainColor: number;
         r: number;
       }> = [];
+
+      const nodeById = new Map<string, (typeof nodeSprites)[number]>();
 
       const makeNode = (skill: SkillNode & { x: number; y: number }) => {
         const domain = domainById.get(skill.domainId);
@@ -208,6 +223,7 @@ export default function SkillTree() {
           const current = progress[skill.id] ?? "todo";
           setSelected({ skill, status: current });
           setSidebarOpen(true);
+          setFocusY(skill.y);
           setProgress((p) => {
             const next = { ...p, [skill.id]: cycleStatus(p[skill.id]) };
             saveProgress(next);
@@ -218,7 +234,9 @@ export default function SkillTree() {
         c.addChild(g);
         c.addChild(label);
         nodesLayer.addChild(c);
-        nodeSprites.push({ skill, c, g, label, domainColor, r });
+        const ns = { skill, c, g, label, domainColor, r };
+        nodeSprites.push(ns);
+        nodeById.set(skill.id, ns);
       };
 
       for (const s of positioned) makeNode(s);
@@ -295,23 +313,47 @@ export default function SkillTree() {
         }
         fog.x = Math.sin(app.ticker.lastTime / 6000) * 12;
 
-        // labels strategy:
-        // - mobile: hide by default (too crowded); show only selected
-        // - desktop: show only when zoomed in enough
         const scale = viewport.scale.x;
         const isMobile = window.matchMedia("(max-width: 820px)").matches;
         const selectedId = selectedIdRef.current;
+
+        // Journey mode window (show only nearby nodes)
+        const journey = isMobile && journeyMode;
+        const centerY = focusY ?? (selectedId ? (nodeById.get(selectedId)?.skill.y ?? worldHeight * 0.85) : worldHeight * 0.85);
+        const windowPx = 340;
+
+        if (journey) {
+          for (const ns of nodeSprites) {
+            const near = Math.abs(ns.skill.y - centerY) <= windowPx;
+            const keep = ns.skill.id === selectedId;
+            ns.c.visible = near || keep;
+          }
+          // edges visible only when both endpoints visible
+          for (const e of edges) {
+            const a = nodeById.get(e.fromId);
+            const b = nodeById.get(e.toId);
+            e.g.visible = Boolean(a?.c.visible && b?.c.visible);
+          }
+        } else {
+          for (const ns of nodeSprites) ns.c.visible = true;
+          for (const e of edges) e.g.visible = true;
+        }
+
+        // labels strategy:
+        // - journey: show only selected (or none)
+        // - map: show when zoomed in
         const showLabels = !isMobile && scale >= 1.15;
         for (const ns of nodeSprites) {
-          ns.label.visible = (showLabels && !selectedId) || ns.skill.id === selectedId;
+          ns.label.visible = journey ? ns.skill.id === selectedId : (showLabels && !selectedId) || ns.skill.id === selectedId;
         }
 
         refresh(app.ticker.lastTime);
       });
 
       // start position：先讓使用者看到「底部起點」
-      viewport.moveCenter(worldWidth / 2, worldHeight * 0.85);
+      viewport.moveCenter(worldWidth / 2, worldHeight * 0.88);
       viewport.setZoom(1);
+      setFocusY(worldHeight * 0.88);
 
       return () => {
         window.removeEventListener("resize", onResize);
@@ -342,9 +384,24 @@ export default function SkillTree() {
       <div className={styles.mobileBar}>
         <button
           className={`${styles.btn} ${styles.btnPrimary}`}
+          onClick={() => setJourneyMode((v) => !v)}
+        >
+          {journeyMode ? "Map" : "Journey"}
+        </button>
+        <button
+          className={styles.btn}
           onClick={() => setSidebarOpen((v) => !v)}
         >
           {sidebarOpen ? "Close" : "Info"}
+        </button>
+        <button
+          className={styles.btn}
+          onClick={() => {
+            // re-center to focus
+            if (focusY != null) viewportRef.current?.moveCenter(viewportRef.current.worldWidth / 2, focusY);
+          }}
+        >
+          Center
         </button>
         <button
           className={styles.btn}
