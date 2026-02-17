@@ -49,8 +49,8 @@ export function layoutBottomUp(skills: SkillNode[], opts?: {
   const worldWidth = opts?.worldWidth ?? 1400;
   const bottomY = opts?.bottomY ?? 760;
   const topY = opts?.topY ?? 120;
-  const nodeW = opts?.nodeW ?? 128;
-  const nodeH = opts?.nodeH ?? 32;
+  const nodeW = opts?.nodeW ?? 140;
+  const nodeH = opts?.nodeH ?? 52;
   const xPadding = opts?.xPadding ?? 40;
 
   const levels = [1, 2, 3] as const;
