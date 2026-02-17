@@ -29,6 +29,11 @@ export default function SkillTree() {
   const [selected, setSelected] = useState<Selected>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  const selectedIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedIdRef.current = selected?.skill.id ?? null;
+  }, [selected]);
+
   const domainById = useMemo(() => {
     const m = new Map(SKILL_TREE.domains.map((d) => [d.id, d] as const));
     return m;
@@ -290,10 +295,16 @@ export default function SkillTree() {
         }
         fog.x = Math.sin(app.ticker.lastTime / 6000) * 12;
 
-        // hide labels when zoomed out to avoid unreadable overlap
+        // labels strategy:
+        // - mobile: hide by default (too crowded); show only selected
+        // - desktop: show only when zoomed in enough
         const scale = viewport.scale.x;
-        const showLabels = scale >= 0.9;
-        for (const ns of nodeSprites) ns.label.visible = showLabels;
+        const isMobile = window.matchMedia("(max-width: 820px)").matches;
+        const selectedId = selectedIdRef.current;
+        const showLabels = !isMobile && scale >= 1.15;
+        for (const ns of nodeSprites) {
+          ns.label.visible = (showLabels && !selectedId) || ns.skill.id === selectedId;
+        }
 
         refresh(app.ticker.lastTime);
       });
