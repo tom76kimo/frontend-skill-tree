@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as PIXI from "pixi.js";
 import { Viewport } from "pixi-viewport";
 
+import styles from "./SkillTree.module.css";
 import { SKILL_TREE } from "@/lib/skillTreeData";
 import { cycleStatus, loadProgress, saveProgress, type ProgressMap } from "@/lib/progress";
 import type { SkillNode, SkillStatus } from "@/lib/types";
@@ -24,6 +25,7 @@ export default function SkillTree() {
 
   const [progress, setProgress] = useState<ProgressMap>({});
   const [selected, setSelected] = useState<Selected>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const domainById = useMemo(() => {
     const m = new Map(SKILL_TREE.domains.map((d) => [d.id, d] as const));
@@ -61,7 +63,9 @@ export default function SkillTree() {
         screenHeight: el.clientHeight,
         worldWidth: 1400,
         worldHeight: 900,
-        events: app.renderer.events
+        events: app.renderer.events,
+        // mobile: 不要讓 viewport 在邊界卡住
+        passiveWheel: false
       });
 
       viewportRef.current = viewport;
@@ -131,6 +135,7 @@ export default function SkillTree() {
         g.on("pointertap", () => {
           const current = progress[skill.id] ?? "todo";
           setSelected({ skill, status: current });
+          setSidebarOpen(true);
           setProgress((p) => {
             const next = { ...p, [skill.id]: cycleStatus(p[skill.id]) };
             saveProgress(next);
@@ -218,18 +223,29 @@ export default function SkillTree() {
   }, [progress]);
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", height: "100vh" }}>
-      <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+    <div className={styles.root}>
+      <div ref={containerRef} className={styles.canvasWrap} />
 
-      <aside
-        style={{
-          padding: 16,
-          borderLeft: "1px solid #1f2a44",
-          background: "#070b17",
-          color: "#e5e7eb",
-          fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace"
-        }}
-      >
+      <div className={styles.mobileBar}>
+        <button
+          className={`${styles.btn} ${styles.btnPrimary}`}
+          onClick={() => setSidebarOpen((v) => !v)}
+        >
+          {sidebarOpen ? "Close" : "Info"}
+        </button>
+        <button
+          className={styles.btn}
+          onClick={() => {
+            setProgress({});
+            saveProgress({});
+            setSelected(null);
+          }}
+        >
+          Reset
+        </button>
+      </div>
+
+      <aside className={`${styles.sidebar} ${sidebarOpen ? styles.sidebarOpen : ""}`}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
           <div style={{ fontSize: 14, color: "#93c5fd" }}>Frontend Skill Tree</div>
           <div style={{ fontSize: 12, opacity: 0.8 }}>v{SKILL_TREE.version}</div>
@@ -281,6 +297,22 @@ export default function SkillTree() {
           }}
         >
           Reset progress
+        </button>
+
+        <div style={{ height: 12 }} />
+
+        <button
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            width: "100%",
+            padding: "10px 12px",
+            background: "transparent",
+            border: "1px solid #334155",
+            color: "#e5e7eb",
+            cursor: "pointer"
+          }}
+        >
+          Close
         </button>
       </aside>
     </div>
